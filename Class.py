@@ -1,5 +1,7 @@
 from connect_database import connect_to_database
 import pyodbc
+import csv
+import os
 #班级管理模块
 
 # 创建班级
@@ -32,6 +34,39 @@ def create_class(cursor):
             exit_message = "已退出班级创建。"
             print(exit_message)
             break
+
+#查看每个班级对应的学生的信息
+def view_class_students(cursor):
+    try:
+        # 输入班级ID
+        class_id = int(input("请输入要查看的班级ID: "))
+
+        # 检查班级是否存在
+        check_class_query = "SELECT class_name FROM Class WHERE class_id = ?"
+        cursor.execute(check_class_query, (class_id,))
+        class_info = cursor.fetchone()
+        if not class_info:
+            print("错误：指定的班级ID不存在。")
+            return
+
+        # 显示班级信息
+        print(f"班级ID: {class_id}, 班级名称: {class_info.class_name}")
+
+        # 查询班级的学生信息
+        query = "SELECT student_id, student_name FROM Student WHERE class_id = ?"
+        cursor.execute(query, (class_id,))
+        students = cursor.fetchall()
+
+        if students:
+            print("班级中的学生信息如下：")
+            for student in students:
+                print(f"学生ID: {student.student_id}, 学生姓名: {student.student_name}")
+        else:
+            print("该班级中没有学生。")
+    except ValueError:
+        print("输入错误：班级ID必须是整数，请重新输入。")
+    except pyodbc.Error as e:
+        print(f"查询班级学生信息失败：{e}")
 
 
 # 查看班级1.查看所有班级 2.根据班级ID查询 3.根据班级名称查询
@@ -101,7 +136,6 @@ def view_classes(cursor):
     else:
         invalid_choice_message = "无效的选项，请重新选择。"
         print(invalid_choice_message)
-
 #更新班级信息
 def update_class(cursor):
     while True:
@@ -110,34 +144,22 @@ def update_class(cursor):
             class_id = int(input("请输入要更新的班级ID: "))
 
             # 检查班级是否存在
-            check_class_query = "SELECT 1 FROM Class WHERE class_id = ?"
+            check_class_query = "SELECT * FROM Class WHERE class_id = ?"
             cursor.execute(check_class_query, (class_id,))
-            if not cursor.fetchone():
+            current_class = cursor.fetchone()
+            if not current_class:
                 print("错误：指定的班级ID不存在。")
                 return
 
-            # 提供更新班级ID的选项
-            update_id_input = input("是否更新班级ID？(y/n): ").strip().lower()
-            new_class_id = None
-            if update_id_input == 'y':
-                new_class_id = int(input("请输入新的班级ID: "))
-                # 检查新班级ID是否已存在
-                cursor.execute(check_class_query, (new_class_id,))
-                if cursor.fetchone():
-                    print("错误：新班级ID已存在，请选择其他ID。")
-                    continue
+            # 显示当前班级信息
+            print(f"当前班级信息 -> 班级ID: {current_class.class_id}, 班级名称: {current_class.class_name}")
 
-            # 更新班级名称
-            new_class_name = input("请输入新的班级名称: ")
+            # 获取新的班级名称
+            new_class_name = input("请输入新的班级名称（直接回车保持不变）: ").strip() or current_class.class_name
 
-            # 构建并执行更新查询
-            if new_class_id:
-                update_query = "UPDATE Class SET class_id = ?, class_name = ? WHERE class_id = ?"
-                cursor.execute(update_query, (new_class_id, new_class_name, class_id))
-            else:
-                update_query = "UPDATE Class SET class_name = ? WHERE class_id = ?"
-                cursor.execute(update_query, (new_class_name, class_id))
-
+            # 构建并执行更新查询（仅更新班级名称，不更新班级ID）
+            update_query = "UPDATE Class SET class_name = ? WHERE class_id = ?"
+            cursor.execute(update_query, (new_class_name, class_id))
             cursor.connection.commit()
 
             if cursor.rowcount > 0:
@@ -148,8 +170,6 @@ def update_class(cursor):
 
         except ValueError:
             print("输入错误：班级ID必须是整数，请重新输入。")
-        except pyodbc.IntegrityError:
-            print("更新失败：新班级ID已存在，无法更新。")
         except pyodbc.Error as e:
             print(f"班级更新失败：{e}")
 
@@ -160,24 +180,29 @@ def update_class(cursor):
             print("已退出班级更新。")
             break
 
-
 #删除班级
 def delete_class(cursor):
     while True:
         try:
             class_id = int(input("请输入要删除的班级ID: "))
 
-            query = "DELETE FROM Class WHERE class_id = ?"
-            cursor.execute(query, (class_id,))
+            # 首先将关联的学生记录的 class_id 置为 NULL
+            update_students_query = "UPDATE Student SET class_id = NULL WHERE class_id = ?"
+            cursor.execute(update_students_query, (class_id,))
+
+            # 然后删除班级记录
+            delete_class_query = "DELETE FROM Class WHERE class_id = ?"
+            cursor.execute(delete_class_query, (class_id,))
             cursor.connection.commit()
 
             if cursor.rowcount > 0:
-                success_message = "班级删除成功."
+                success_message = "班级及其关联的学生记录更新成功，班级已删除。"
                 print(success_message)
             else:
                 not_found_message = "未找到指定班级ID，未删除任何记录。"
                 print(not_found_message)
             break
+
         except ValueError:  # 输入非整数ID
             error_message = "输入错误：班级ID必须是整数，请重新输入。"
             print(error_message)
@@ -192,6 +217,7 @@ def delete_class(cursor):
             exit_message = "已退出班级删除。"
             print(exit_message)
             break
+
 
 #踢出学员 将指定学员的 class_id 字段设置为 NULL，从而移出指定班级。
 def remove_student_from_class(cursor):
@@ -276,6 +302,59 @@ def add_student_to_class(cursor):
         error_message = f"加入班级失败：{e}"
         print(error_message)
 
+#批量加入学生
+#指定加入班级，读取学生信息文件，批量加入
+#信息文件格式全为学生ID
+def bulk_update_students_class(cursor):
+    try:
+        # 用户输入班级ID
+        class_id = int(input("请输入要加入学生的班级ID: "))
+
+        # 检查班级是否存在
+        check_class_query = "SELECT class_name FROM Class WHERE class_id = ?"
+        cursor.execute(check_class_query, (class_id,))
+        class_info = cursor.fetchone()
+        if not class_info:
+            print("错误：指定的班级ID不存在。")
+            return
+        print(f"班级ID: {class_id}, 班级名称: {class_info.class_name}")
+
+        # 固定目录路径，用户只需输入文件名
+        base_directory = r"D:\pythonProject\在线教学系统\data"
+        filename = input("请输入包含学生信息的文件名（无需路径）: ").strip()
+        full_path = os.path.join(base_directory, filename)  # 拼接完整路径
+
+        # 读取并批量更新学生的班级信息
+        with open(full_path, mode='r', encoding='utf-8') as file:
+            csv_reader = csv.reader(file)
+            next(csv_reader)  # 跳过标题行
+
+            for row in csv_reader:
+                try:
+                    student_id = int(row[0].strip())  # 解析 student_id 为整数
+
+                    # 更新现有学生的班级信息
+                    query = "UPDATE Student SET class_id = ? WHERE student_id = ?"
+                    cursor.execute(query, (class_id, student_id))
+
+                    # 检查更新结果
+                    if cursor.rowcount == 0:
+                        print(f"警告：未找到学生ID {student_id}，未更新该记录。")
+
+                except ValueError:
+                    print(f"数据错误：学生ID必须是整数，跳过该行。行内容: {row}")
+                except pyodbc.Error as e:
+                    print(f"更新失败：{e}，行内容: {row}")
+
+        cursor.connection.commit()
+        print("批量更新学生班级信息成功。")
+
+    except FileNotFoundError:
+        print("文件未找到，请检查文件名并确保文件存在于指定目录。")
+    except ValueError:
+        print("输入错误：班级ID必须是整数。")
+    except Exception as e:
+        print(f"批量更新学生班级信息时发生错误：{e}")
 
 
 #主函数，调试用
@@ -302,9 +381,11 @@ def main():
         print("5. 踢出学员")
         print("6. 转班")
         print("7. 加入学员")
-        print("8. 退出程序")
+        print("8. 查看班级中的学生信息")
+        print("9. 批量加入学生到班级")
+        print("10. 退出程序")
 
-        choice = input("请选择一个操作 (1-8): ")
+        choice = input("请选择一个操作 (1-10): ")
 
         if choice == "1":
             create_class(cursor)
@@ -321,6 +402,10 @@ def main():
         elif choice == "7":
             add_student_to_class(cursor)
         elif choice == "8":
+            view_class_students(cursor)
+        elif choice == "9":
+            bulk_update_students_class(cursor)
+        elif choice == "10":
             print("退出程序。")
             break
         else:
@@ -332,4 +417,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
 
