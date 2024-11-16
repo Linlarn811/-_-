@@ -198,6 +198,7 @@ def update_question(question_id, bank_id):
             cursor.close()
             connection.close()
 
+
 def view_questions(bank_id):
     """查看题目及其统计信息"""
     if not validate_bank_id(bank_id):
@@ -225,9 +226,35 @@ def view_questions(bank_id):
                     cursor.execute(query_paper, (question_id,))
                     paper_count = cursor.fetchone()[0]
 
+                    # 查询该题目被考试的次数
+                    query_exam = """
+                        SELECT COUNT(*) 
+                        FROM ExamResult 
+                        WHERE question_id = ?
+                    """
+                    cursor.execute(query_exam, (question_id,))
+                    exam_count = cursor.fetchone()[0]
+
+                    # 查询该题目的正确率
+                    query_correct_rate = """
+                        SELECT 
+                            CAST(SUM(CASE WHEN score >= 1 THEN 1 ELSE 0 END) AS FLOAT) / 
+                            CAST(COUNT(*) AS FLOAT) * 100
+                        FROM ExamResult
+                        WHERE question_id = ?
+                    """
+                    cursor.execute(query_correct_rate, (question_id,))
+                    correct_rate = cursor.fetchone()[0]
+
+                    # 如果 correct_rate 为 None，则赋值为 0.0
+                    correct_rate = correct_rate if correct_rate is not None else 0.0
+
                     # 输出题目及其统计信息
-                    print(f"题目ID: {question_id}, 知识点: {knowledge_point}, 类型: {question_type}, 内容: {question_text}")
+                    print(
+                        f"题目ID: {question_id}, 知识点: {knowledge_point}, 类型: {question_type}, 内容: {question_text}")
                     print(f"  被组卷次数: {paper_count} 次")
+                    print(f"  被考试次数: {exam_count} 次")
+                    print(f"  正确率: {correct_rate:.2f}%")
 
             else:
                 print(f"题库 ID {bank_id} 中没有题目。")
