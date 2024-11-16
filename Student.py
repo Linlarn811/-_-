@@ -1,66 +1,58 @@
 from connect_database import connect_to_database
 import pyodbc
 import csv
-
+import os
 #创建学生
+# 创建学生
 def create_student(cursor):
     while True:
         try:
-            student_id = int(input("请输入学生ID: "))
             student_name = input("请输入学生姓名: ")
             class_id_input = input("请输入班级ID（如果没有，请留空并按回车）: ").strip()
 
             # 如果班级ID为空，则设置为 None
             class_id = int(class_id_input) if class_id_input else None
 
-            query = "INSERT INTO Student (student_id, student_name, class_id) VALUES (?, ?, ?)"
-            cursor.execute(query, (student_id, student_name, class_id))
+            query = "INSERT INTO Student (student_name, class_id) VALUES (?, ?)"
+            cursor.execute(query, (student_name, class_id))
             cursor.connection.commit()
-            success_message = "学生创建成功."
-            print(success_message)
+            print("学生创建成功.")
             break  # 成功后退出循环
-        except pyodbc.IntegrityError:  # 重复键值错误
-            error_message = "学生创建失败：该学生ID已存在，请重新输入。"
-            print(error_message)
         except ValueError:  # 输入非整数ID
-            error_message = "输入错误：学生ID必须是整数，班级ID如果有也必须是整数，请重新输入。"
-            print(error_message)
+            print("输入错误：班级ID如果有必须是整数，请重新输入。")
         except pyodbc.Error as e:  # 其他数据库错误
-            error_message = f"学生创建失败：{e}"
-            print(error_message)
+            print(f"学生创建失败：{e}")
 
         # 用户选择重新输入或退出
-        retry_message = "是否继续尝试？(y/n): "
-        retry = input(retry_message).strip().lower()
+        retry = input("是否继续尝试？(y/n): ").strip().lower()
         if retry != 'y':
-            exit_message = "已退出学生创建。"
-            print(exit_message)
+            print("已退出学生创建。")
             break
 #批量导入学生数据
+# 批量导入学生数据
 def bulk_import_students(cursor):
-    # 用户输入文件名
-    print("文件格式为student_id,student_name,class_id(可以为空)")
+    print("文件格式为 student_name,class_id (class_id 可为空)")
+    base_directory = r"D:\pythonProject\在线教学系统\data"
     filename = input("请输入要导入的CSV文件名（包括路径）: ").strip()
+    # 固定目录路径，用户只需输入文件名
 
+    full_path = os.path.join(base_directory, filename)  # 拼接完整路径
     try:
-        with open(filename, mode='r', encoding='utf-8') as file:
+        with open(full_path, mode='r', encoding='utf-8') as file:
             csv_reader = csv.reader(file)
             next(csv_reader)  # 跳过标题行
 
             for row in csv_reader:
                 try:
-                    student_id = int(float(row[0]))  # 确保 student_id 是整数
-                    student_name = row[1]
-                    # 将 class_id 转为整数并处理空值
-                    class_id = int(float(row[2])) if row[2] else None
+                    student_name = row[0].strip()
+                    # 处理 class_id 的空值情况
+                    class_id = int(row[1].strip()) if row[1].strip() else None
 
-                    query = "INSERT INTO Student (student_id, student_name, class_id) VALUES (?, ?, ?)"
-                    cursor.execute(query, (student_id, student_name, class_id))
+                    query = "INSERT INTO Student (student_name, class_id) VALUES (?, ?)"
+                    cursor.execute(query, (student_name, class_id))
 
                 except ValueError:
-                    print(f"数据错误：学生ID和班级ID必须是整数，跳过该行。行内容: {row}")
-                except pyodbc.IntegrityError:
-                    print(f"数据错误：学生ID {student_id} 已存在，跳过该行。")
+                    print(f"数据错误：班级ID必须是整数或空值，跳过该行。行内容: {row}")
                 except pyodbc.Error as e:
                     print(f"插入失败：{e}，行内容: {row}")
 
@@ -220,7 +212,37 @@ def update_student(cursor):
             print(exit_message)
             break
 
+# 删除一个班的所有学生
+def delete_students_in_class(cursor):
+    try:
+        class_id = int(input("请输入要删除学生的班级ID: "))
 
+        query = "DELETE FROM Student WHERE class_id = ?"
+        cursor.execute(query, (class_id,))
+        cursor.connection.commit()
+
+        if cursor.rowcount > 0:
+            print(f"已成功删除班级ID为 {class_id} 的所有学生。")
+        else:
+            print("未找到指定班级ID的学生记录，未删除任何数据。")
+    except ValueError:
+        print("输入错误：班级ID必须是整数，请重新输入。")
+    except pyodbc.Error as e:
+        print(f"删除失败：{e}")
+
+# 删除所有学生
+def delete_all_students(cursor):
+    try:
+        confirm = input("您确定要删除所有学生记录吗？此操作不可逆。(y/n): ").strip().lower()
+        if confirm == 'y':
+            query = "DELETE FROM Student"
+            cursor.execute(query)
+            cursor.connection.commit()
+            print("所有学生记录已删除。")
+        else:
+            print("操作已取消。")
+    except pyodbc.Error as e:
+        print(f"删除所有学生记录失败：{e}")
 #删除学生
 def delete_student(cursor):
     while True:
@@ -252,7 +274,9 @@ def delete_student(cursor):
             exit_message = "已退出学生删除。"
             print(exit_message)
             break
-#调用函数，调试用
+
+
+# 调试主函数
 def main():
     connection = connect_to_database()
     if not connection:
@@ -267,8 +291,10 @@ def main():
         print("2. View all students or search by ID/name")
         print("3. Update student information")
         print("4. Delete a student")
-        print("5. Exit")
-        print("6.批量导入数据")
+        print("5. Bulk import students")
+        print("6. Delete all students in a class")
+        print("7. Delete all students")
+        print("8. Exit")
         choice = input("Select an option: ")
 
         if choice == "1":
@@ -279,9 +305,13 @@ def main():
             update_student(cursor)
         elif choice == "4":
             delete_student(cursor)
-        elif choice=="6":
-            bulk_import_students(cursor)
         elif choice == "5":
+            bulk_import_students(cursor)
+        elif choice == "6":
+            delete_students_in_class(cursor)
+        elif choice == "7":
+            delete_all_students(cursor)
+        elif choice == "8":
             print("Exiting program.")
             break
         else:
@@ -289,7 +319,6 @@ def main():
 
     cursor.close()
     connection.close()
-
 
 if __name__ == "__main__":
     main()
